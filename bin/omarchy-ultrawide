@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+# omarchy-ultrawide — ultrawide background packs for Omarchy.
+#
+#   install [RATIO] [--replace]   install a pack (auto-detects the monitor)
+#   switch RATIO                  change to another pack
+#   uninstall                     remove every file this installed
+#   status                        per-monitor: what each screen shows
+#   packs                         list downloaded packs
+#   fetch [TAG]                   download packs from the GitHub release
+#   menu                          add rows to the Omarchy menu
+#   resolve [PATH]                JSON: pack variants of a background
+#   enable | disable              swap in the monitor-aware renderer / restore stock
+#
+# RATIO: 32x9 (5120x1440) | 21x9 (3440x1440) | 21x9-1080p (2560x1080)
+#
+# Default mode ADDS images to ~/.config/omarchy/backgrounds/<theme>/ so they join
+# the theme's cycle. --replace overlays them into
+# ~/.config/omarchy/themes/<theme>/backgrounds/ under the stock names instead.
+# Nothing under /usr/share/omarchy is ever touched.
+set -euo pipefail
+
+ID=io.github.johnsideserf.ultrawide-background
+DATA=${OMARCHY_ULTRAWIDE_DATA:-$HOME/.local/share/omarchy-ultrawide}
+PACKS="$DATA/backgrounds"
+REPO=${OMARCHY_ULTRAWIDE_REPO:-johnsideserf/omarchy-ultrawide-background}
+STATE_DIR="$HOME/.config/omarchy/ultrawide-backgrounds"
+MANIFEST="$STATE_DIR/manifest"
+META="$STATE_DIR/installed"
+OMASTATE="$HOME/.local/state/omarchy/current"
+MENU="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
+RATIOS="32x9 21x9 21x9-1080p"
+
+die() { echo "omarchy-ultrawide: $*" >&2; exit 1; }
+usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; }
+packs() { ls -1 "$PACKS" 2>/dev/null || true; }
+
+detect() {
+  command -v hyprctl >/dev/null 2>&1 || { echo 32x9; return; }
+  local W H r
+  read -r W H < <(hyprctl monitors -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    m = json.load(sys.stdin)
+    m = [x for x in m if x.get("focused")] or m
+    print(m[0]["width"], m[0]["height"])
+except Exception:
+    print("0 0")')
+  [ "${W:-0}" -gt 0 ] || { echo 32x9; return; }
+  r=$(( W * 100 / H ))
+  if   [ "$r" -ge 340 ]; then echo 32x9
+  elif [ "$r" -ge 220 ] && [ "$r" -le 260 ]; then
+    [ "$H" -le 1080 ] && echo 21x9-1080p || echo 21x9
+  else echo ""; fi
+}
+
+reapply_theme() {
+  command -v omarchy >/dev/null 2>&1 || return 0
+  local cur; cur=$(omarchy theme current 2>/dev/null || true)
+  [ -n "$cur" ] && omarchy theme set "$cur" >/dev/null 2>&1 && echo "re-applied theme: $cur" || true
+}
+
+cmd_fetch() {
+  local tag=${1:-latest} url pack
+  mkdir -p "$PACKS"; cd "$PACKS"
+  for pack in $RATIOS; do
+    [ -d "$pack" ] && { echo "have $pack"; continue; }
+    if [ "$tag" = latest ]; then
+      url="https://github.com/$REPO/releases/latest/download/$pack.tar.zst"
+    else
+      url="https://github.com/$REPO/releases/download/$tag/$pack.tar.zst"
+    fi
+    echo "fetching $pack ..."
+    curl -fsSL "$url" -o "$pack.tar.zst" || die "download failed: $url"
+    tar --zstd -xf "$pack.tar.zst" && rm -f "$pack.tar.zst" && echo "ok $pack"
+  done
+}
+
+cmd_uninstall() {
+  [ -f "$MANIFEST" ] || { echo "nothing installed"; return 0; }
+  local n=0 f
+  while read -r f; do [ -f "$f" ] && rm -f "$f" && n=$((n+1)); done < "$MANIFEST"
+  rm -f "$MANIFEST" "$META"
+  find "$HOME/.config/omarchy/backgrounds" -type d -empty -delete 2>/dev/null || true
+  echo "removed $n files"
+}
+
+cmd_install() {
+  local ratio=${1:-} mode=add d slug dest f n=0
+  [ "${2:-}" = "--replace" ] && mode=replace
+  if [ -z "$ratio" ]; then
+    ratio=$(detect)
+    [ -n "$ratio" ] || die "this monitor is not ultrawide; pass a ratio explicitly ($(packs | tr '\n' ' '))"
+    echo "detected monitor -> $ratio"
+  fi
+  [ -d "$PACKS/$ratio" ] || die "no pack '$ratio' downloaded (have: $(packs | tr '\n' ' ')); run: omarchy-ultrawide fetch"
+  [ -f "$MANIFEST" ] && cmd_uninstall >/dev/null
+  mkdir -p "$STATE_DIR"; : > "$MANIFEST"
+  for d in "$PACKS/$ratio"/*/; do
+    slug=$(basename "$d")
+    if [ "$mode" = replace ]; then dest="$HOME/.config/omarchy/themes/$slug/backgrounds"
+    else dest="$HOME/.config/omarchy/backgrounds/$slug"; fi
+    mkdir -p "$dest"
+    for f in "$d"*; do
+      cp -f "$f" "$dest/$(basename "$f")"
+      echo "$dest/$(basename "$f")" >> "$MANIFEST"; n=$((n+1))
+    done
+  done
+  printf 'ratio=%s\nmode=%s\n' "$ratio" "$mode" > "$META"
+  echo "installed $n backgrounds ($ratio, $mode)"
+  reapply_theme
+}
+
+cmd_resolve() {
+  local p=${1:-} key file dir parent slug r f g first=1
+  [ -n "$p" ] || p=$(readlink -f "$OMASTATE/background" 2>/dev/null || true)
+  [ -n "$p" ] || { echo '{}'; return; }
+  file=$(basename "$p"); dir=$(dirname "$p"); parent=$(basename "$dir")
+  if [ "$parent" = backgrounds ]; then slug=$(basename "$(dirname "$dir")"); else slug=$parent; fi
+  [ "$dir" = "$OMASTATE/theme/backgrounds" ] && slug=$(cat "$OMASTATE/theme.name" 2>/dev/null || echo "$slug")
+  key="$slug/$file"
+  printf '{"path":"%s","key":"%s","variants":{' "$p" "$key"
+  for r in $RATIOS; do
+    f="$PACKS/$r/$key"
+    if [ ! -f "$f" ]; then
+      for ext in jpg jpeg png; do g="${f%.*}.$ext"; [ -f "$g" ] && { f=$g; break; }; done
+    fi
+    [ -f "$f" ] || f=""
+    [ $first = 1 ] || printf ','; first=0
+    printf '"%s":"%s"' "$r" "$f"
+  done
+  printf '}}\n'
+}
+
+cmd_status() {
+  local bg; bg=$(readlink -f "$OMASTATE/background" 2>/dev/null || echo "?")
+  echo "current background: $bg"
+  echo "packs downloaded:   $(packs | tr '\n' ' ')"
+  [ -f "$META" ] && echo "installed:          $(tr '\n' ' ' < "$META")" || echo "installed:          (none)"
+  echo
+  cmd_resolve "$bg" > "/tmp/.uw-res.$$" 2>/dev/null || echo '{}' > "/tmp/.uw-res.$$"
+  hyprctl monitors -j > "/tmp/.uw-mon.$$" 2>/dev/null || echo '[]' > "/tmp/.uw-mon.$$"
+  python3 - "/tmp/.uw-res.$$" "/tmp/.uw-mon.$$" <<'PY'
+import json, os, sys
+res = json.load(open(sys.argv[1])) if os.path.getsize(sys.argv[1]) else {}
+mons = json.load(open(sys.argv[2])) if os.path.getsize(sys.argv[2]) else []
+def cls(w, h):
+    r = w * 100 // h
+    if r >= 340: return "32x9"
+    if 220 <= r <= 260: return "21x9-1080p" if h <= 1080 else "21x9"
+    return ""
+if not mons:
+    print("  (no monitors reported)"); raise SystemExit
+print(f"  {'OUTPUT':10} {'RESOLUTION':13} {'PACK':12} SHOWS")
+for m in mons:
+    c = cls(m["width"], m["height"])
+    v = res.get("variants", {}).get(c, "") if c else ""
+    mark = " *" if m.get("focused") else "  "
+    shows = f"{os.path.basename(v)}   [{c}]" if v else "stock image (no pack for this shape)"
+    print(f"{mark}{m['name']:10} {m['width']}x{m['height']:<8} {c or '-':12} {shows}")
+PY
+  rm -f "/tmp/.uw-res.$$" "/tmp/.uw-mon.$$"
+}
+
+cmd_menu() {
+  mkdir -p "$(dirname "$MENU")"; [ -f "$MENU" ] || echo '{' > "$MENU"
+  grep -q '"style.ultrawide"' "$MENU" 2>/dev/null && { echo "menu rows already present"; return 0; }
+  python3 - "$MENU" "$(command -v omarchy-ultrawide || echo "$HOME/.local/bin/omarchy-ultrawide")" <<'PY'
+import sys
+path, cli = sys.argv[1], sys.argv[2]
+s = open(path).read().rstrip()
+rows = f'''
+  // Ultrawide background packs
+  "style.ultrawide": {{"icon":"\\udb81\\udd79","label":"Ultrawide backgrounds","description":"32:9 and 21:9 versions of the stock backgrounds"}},
+  "style.ultrawide.32x9": {{"icon":"\\udb81\\udd7a","label":"32:9  (5120x1440)","action":"{cli} switch 32x9"}},
+  "style.ultrawide.21x9": {{"icon":"\\udb81\\udd7a","label":"21:9  (3440x1440)","action":"{cli} switch 21x9"}},
+  "style.ultrawide.21x9-1080p": {{"icon":"\\udb81\\udd7a","label":"21:9  (2560x1080)","action":"{cli} switch 21x9-1080p"}},
+  "style.ultrawide.status": {{"icon":"\\udb80\\udcbe","label":"Status","action":"omarchy-launch-or-focus-tui \\"bash -c '{cli} status; read -n 1'\\""}},
+  "style.ultrawide.uninstall": {{"icon":"\\udb80\\udd7a","label":"Remove pack","action":"{cli} uninstall"}}
+'''
+i = s.rfind('}')
+body = s[:i].rstrip()
+if not body.endswith('{') and not body.endswith(','):
+    body += ','
+open(path, 'w').write(body + rows + '}\n')
+PY
+  echo "menu rows added to $MENU (Style -> Ultrawide backgrounds); the menu hot-reloads"
+}
+
+case "${1:-}" in
+  install)   shift; cmd_install "${1:-}" "${2:-}";;
+  switch)    [ -n "${2:-}" ] || die "switch needs a ratio"
+             cmd_install "$2" "$([ "$(grep -s '^mode=' "$META" | cut -d= -f2)" = replace ] && echo --replace)";;
+  uninstall) cmd_uninstall; reapply_theme;;
+  status)    cmd_status;;
+  packs)     packs;;
+  fetch)     shift; cmd_fetch "${1:-latest}";;
+  menu)      cmd_menu;;
+  resolve)   shift; cmd_resolve "${1:-}";;
+  enable)    omarchy plugin enable "$ID" >/dev/null && omarchy plugin disable omarchy.background >/dev/null
+             echo "ultrawide renderer enabled (stock omarchy.background disabled)";;
+  disable)   omarchy plugin disable "$ID" >/dev/null 2>&1 || true
+             omarchy plugin enable omarchy.background >/dev/null
+             echo "stock omarchy.background restored";;
+  -h|--help|"") usage;;
+  *)         die "unknown command: $1";;
+esac

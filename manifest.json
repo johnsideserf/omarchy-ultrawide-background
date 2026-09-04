@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.johnsideserf.ultrawide-background",
+  "name": "Ultrawide Background",
+  "version": "0.1.0",
+  "author": "johnsideserf",
+  "description": "Monitor-aware desktop background: shows a 32:9 or 21:9 outpainted version of the current Omarchy background on ultrawide screens, the stock image elsewhere. Replaces omarchy.background.",
+  "kinds": [
+    "service"
+  ],
+  "entryPoints": {
+    "service": "UltrawideBackground.qml"
+  },
+  "icon": "icon.png",
+  "license": "MIT"
+}

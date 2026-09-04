@@ -94,6 +94,22 @@ omarchy-ultrawide uninstall         # remove every file it installed
 omarchy-ultrawide enable|disable    # swap the renderer in / restore the stock one
 ```
 
+## Requirements and dependencies
+
+- **Omarchy 3+** with the Quickshell-based shell (`omarchy-shell`)
+- `curl` — downloading the packs from the GitHub release
+- `python3` — monitor detection and JSON handling in the CLI (stock on Omarchy)
+- `imagemagick` (`magick`) — only for `scripts/make-variants.sh`, if you derive
+  packs yourself; not needed for a normal install
+- `hyprctl` — monitor detection. Without it the CLI defaults to the 32:9 pack
+- `zstd`/`tar` — unpacking the release archives (stock on Arch)
+
+No network access is used after the initial pack download. No daemon, no
+telemetry, nothing runs in the background: the plugin is a QML service inside the
+existing shell process, and the CLI only runs when you invoke it.
+
+Disk: 122 MB (32:9), 89 MB (21:9), 56 MB (21:9-1080p) per installed pack.
+
 ## What it touches
 
 Nothing in `/usr/share/omarchy` — verify with `pacman -Qkk omarchy`.

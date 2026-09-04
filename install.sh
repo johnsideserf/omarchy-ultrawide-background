@@ -5,7 +5,8 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 CLI="$HERE/bin/omarchy-ultrawide"
 
-for dep in magick python3 curl; do
+# magick is only needed by scripts/make-variants.sh, not by an install
+for dep in python3 curl tar; do
   command -v "$dep" >/dev/null 2>&1 || { echo "install.sh: missing dependency: $dep" >&2; exit 1; }
 done
 

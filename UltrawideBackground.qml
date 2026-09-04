@@ -17,6 +17,9 @@ Item {
   property var shell: null
   property var pluginRegistry: null
 
+  // Upstream has no way for a plugin to declare that it replaces a first-party
+  // service (omacom/omarchy#10213). Until it does, detect the clash here.
+  //
   // Two background renderers must not run at once: both create a PanelWindow per
   // screen in the "omarchy-background" layer and both claim the "background" IPC
   // target, so the desktop ends up with stacked layers. If the stock renderer is

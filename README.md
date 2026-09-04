@@ -153,7 +153,20 @@ Images are installed to Omarchy's documented user paths:
 
 Backgrounds stay tied to themes exactly as Omarchy intends: `Super+Ctrl+Space`
 cycles them, `omarchy theme set` applies them. Every installed file is recorded in
-a manifest, and `omarchy-ultrawide uninstall` removes precisely those files.
+a manifest, and `omarchy-ultrawide uninstall` removes precisely those files, the
+menu rows, and nothing else.
+
+### Removing it
+
+```bash
+omarchy-ultrawide disable      # only if you ran `enable`; restores the stock renderer
+omarchy-ultrawide uninstall    # removes the images and the menu rows
+omarchy plugin remove io.github.johnsideserf.ultrawide-background
+rm -rf ~/.local/share/omarchy-ultrawide   # the downloaded packs
+```
+
+Run them in that order: `omarchy plugin remove` deletes the plugin directory, and
+the `omarchy-ultrawide` command lives inside it.
 
 The optional bar widget in `optional/` is **not** installed by default — the menu
 rows cover the same ground without taking permanent space on your bar.

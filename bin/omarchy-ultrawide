@@ -8,6 +8,7 @@
 #   packs                         list downloaded packs
 #   fetch [TAG]                   download packs from the GitHub release
 #   menu                          add rows to the Omarchy menu
+#   menu-remove                   take those rows back out
 #   fix-previews                  restore stock theme screenshots in the switcher
 #   resolve [PATH]                JSON: pack variants of a background
 #   enable | disable              swap in the monitor-aware renderer / restore stock
@@ -64,8 +65,11 @@ reapply_theme() {
 }
 
 cmd_fetch() {
-  local tag=${1:-latest} url pack
+  local tag=${1:-latest} url pack stage n
+  command -v tar >/dev/null 2>&1 || die "tar is required"
   mkdir -p "$PACKS"; cd "$PACKS"
+  # a hard kill skips the EXIT trap, so clear any debris from a previous run
+  rm -rf "$PACKS"/.stage.* "$PACKS"/*.part 2>/dev/null || true
   for pack in $RATIOS; do
     [ -d "$pack" ] && { echo "have $pack"; continue; }
     if [ "$tag" = latest ]; then
@@ -74,8 +78,24 @@ cmd_fetch() {
       url="https://github.com/$REPO/releases/download/$tag/$pack.tar.zst"
     fi
     echo "fetching $pack ..."
-    curl -fsSL "$url" -o "$pack.tar.zst" || die "download failed: $url"
-    tar --zstd -xf "$pack.tar.zst" && rm -f "$pack.tar.zst" && echo "ok $pack"
+    stage=$(mktemp -d "$PACKS/.stage.XXXXXX") || die "cannot create a staging dir"
+    # shellcheck disable=SC2064
+    trap "rm -rf '$stage' '$PACKS/$pack.part'" EXIT
+    curl -fsSL "$url" -o "$pack.part" || die "download failed: $url"
+    # refuse absolute or parent-relative members before unpacking anything
+    if tar --zstd -tf "$pack.part" | grep -qE '(^/|(^|/)\.\.(/|$))'; then
+      die "refusing to unpack $pack: archive contains unsafe paths"
+    fi
+    tar --zstd -xf "$pack.part" -C "$stage" --no-same-owner --no-same-permissions \
+      || die "could not unpack $pack"
+    [ -d "$stage/$pack" ] || die "$pack archive did not contain a '$pack' directory"
+    n=$(find "$stage/$pack" -type f | wc -l)
+    [ "$n" -gt 0 ] || die "$pack archive was empty"
+    # move into place only once it is known-good, so an interrupted run never
+    # leaves a partial directory that the next run mistakes for a full pack
+    mv "$stage/$pack" "$PACKS/$pack"
+    rm -rf "$stage" "$pack.part"; trap - EXIT
+    echo "ok $pack ($n images)"
   done
 }
 
@@ -85,6 +105,7 @@ cmd_uninstall() {
   while read -r f; do [ -f "$f" ] && rm -f "$f" && n=$((n+1)); done < "$MANIFEST"
   rm -f "$MANIFEST" "$META"
   find "$HOME/.config/omarchy/backgrounds" -type d -empty -delete 2>/dev/null || true
+  cmd_menu_remove quiet
   echo "removed $n files"
 }
 
@@ -205,6 +226,22 @@ PY
   echo "menu rows added to $MENU (Style -> Ultrawide backgrounds); the menu hot-reloads"
 }
 
+cmd_menu_remove() {
+  [ -f "$MENU" ] || return 0
+  grep -q '"style.ultrawide' "$MENU" 2>/dev/null || return 0
+  python3 - "$MENU" <<'PY'
+import re, sys
+path = sys.argv[1]
+s = open(path).read()
+# drop our comment line and every "style.ultrawide..." entry, leaving the rest
+s = re.sub(r'\n\s*//[^\n]*Ultrawide background packs[^\n]*', '', s)
+s = re.sub(r'\n\s*"style\.ultrawide[^"]*":\s*\{.*?\}\s*,?', '', s)
+s = re.sub(r',(\s*\})', r'\1', s)          # tidy a trailing comma
+open(path, 'w').write(s)
+PY
+  [ "${1:-}" = quiet ] || echo "menu rows removed from $MENU"
+}
+
 case "${1:-}" in
   install)   shift; cmd_install "${1:-}" "${2:-}";;
   switch)    [ -n "${2:-}" ] || die "switch needs a ratio"
@@ -214,6 +251,7 @@ case "${1:-}" in
   packs)     packs;;
   fetch)     shift; cmd_fetch "${1:-latest}";;
   menu)      cmd_menu;;
+  menu-remove) cmd_menu_remove;;
   fix-previews)
              n=0
              for t in /usr/share/omarchy/themes/*/; do
@@ -226,9 +264,11 @@ case "${1:-}" in
              rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/omarchy/theme-selector"
              echo "linked $n stock previews; switcher cache cleared";;
   resolve)   shift; cmd_resolve "${1:-}";;
-  enable)    omarchy plugin enable "$ID" >/dev/null && omarchy plugin disable omarchy.background >/dev/null
+  enable)    command -v omarchy >/dev/null 2>&1 || die "the 'omarchy' command is required"
+             omarchy plugin enable "$ID" >/dev/null && omarchy plugin disable omarchy.background >/dev/null
              echo "ultrawide renderer enabled (stock omarchy.background disabled)";;
-  disable)   omarchy plugin disable "$ID" >/dev/null 2>&1 || true
+  disable)   command -v omarchy >/dev/null 2>&1 || die "the 'omarchy' command is required"
+             omarchy plugin disable "$ID" >/dev/null 2>&1 || true
              omarchy plugin enable omarchy.background >/dev/null
              echo "stock omarchy.background restored";;
   -h|--help|"") usage;;

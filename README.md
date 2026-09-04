@@ -34,6 +34,11 @@ omarchy plugin add https://github.com/johnsideserf/omarchy-ultrawide-background
 omarchy-ultrawide enable      # enables this renderer, disables the stock one
 ```
 
+`omarchy-ultrawide enable` is the step that matters. `omarchy plugin add --enable`
+only enables this plugin, and Omarchy would then be running two background
+renderers; this plugin detects that and stands down, so the desktop keeps working
+but you get no per-monitor behaviour until you run the command above.
+
 ### Packs
 
 | Pack | Resolution | For |

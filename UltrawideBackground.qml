@@ -13,6 +13,25 @@ import qs.Ui
 Item {
   id: root
 
+  // Injected by the shell for service plugins (see shell.qml ensureService).
+  property var shell: null
+  property var pluginRegistry: null
+
+  // Two background renderers must not run at once: both create a PanelWindow per
+  // screen in the "omarchy-background" layer and both claim the "background" IPC
+  // target, so the desktop ends up with stacked layers. If the stock renderer is
+  // still enabled we are the redundant one - stand down and render nothing until
+  // the user swaps deliberately with `omarchy-ultrawide enable`.
+  readonly property bool stockRendererActive:
+    pluginRegistry ? pluginRegistry.isEnabled("omarchy.background") : false
+
+  onStockRendererActiveChanged: {
+    if (stockRendererActive)
+      console.warn("ultrawide-background: omarchy.background is still enabled, "
+        + "so this renderer is standing down. Run `omarchy-ultrawide enable` to "
+        + "swap it in.")
+  }
+
   readonly property string home: Quickshell.env("HOME")
   readonly property string stateHome: home + "/.local/state"
   readonly property string currentBackgroundLink: stateHome + "/omarchy/current/background"
@@ -257,7 +276,7 @@ Item {
         root.variantVersion   // re-evaluate when the cache fills
         return root.variantFor(path, ratioClass)
       }
-      visible: !remapGuard.remapping
+      visible: !remapGuard.remapping && !root.stockRendererActive
       anchors { top: true; bottom: true; left: true; right: true }
 
       ScreenMoveRemap {

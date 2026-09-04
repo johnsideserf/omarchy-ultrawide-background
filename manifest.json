@@ -13,5 +13,8 @@
   },
   "icon": "icon.png",
   "license": "MIT",
-  "preview": "preview.png"
+  "preview": "preview.png",
+  "omarchy": {
+    "clonedFrom": "omarchy.background"
+  }
 }

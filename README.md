@@ -32,16 +32,20 @@ cycle them with `Super+Ctrl+Space` as usual.
 
 ### Mixed monitors
 
-If your displays have *different* shapes (say a 32:9 next to a 16:9 laptop), also
-swap in the per-screen renderer:
+If your displays have *different* shapes (say a 32:9 next to a 16:9 laptop), you
+also want the per-screen renderer. Enable the plugin and Omarchy hands it the
+background surface:
 
 ```bash
-omarchy-ultrawide enable
+omarchy plugin enable io.github.johnsideserf.ultrawide-background
 ```
 
-Until you run that, the plugin deliberately does nothing: Omarchy's own background
-renderer is still active, and two renderers must not run at once. `enable` swaps
-them over; `omarchy-ultrawide disable` puts the stock one back.
+Disabling it restores the stock renderer automatically. (The manifest declares
+`omarchy.clonedFrom: omarchy.background` — this plugin *is* a fork of Omarchy's
+background service, and that tells the plugin registry to swap the two rather
+than run both.) `omarchy-ultrawide enable` and `disable` do the same thing if you
+prefer; they exist for setups where the registry has not picked up the manifest
+yet.
 
 <details>
 <summary>Prefer not to install the plugin at all?</summary>

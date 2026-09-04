@@ -32,6 +32,14 @@ echo "==> linked ~/.local/bin/omarchy-ultrawide"
 echo
 "$CLI" status || true
 echo
-echo "Done. For mixed monitor setups also run:"
-echo "  omarchy plugin add https://github.com/johnsideserf/omarchy-ultrawide-background"
-echo "  omarchy-ultrawide enable"
+case "$HERE" in
+  "$HOME/.config/omarchy/plugins/"*)
+    echo "Done. Mixed monitor setup? Swap in the per-screen renderer with:"
+    echo "  omarchy-ultrawide enable"
+    ;;
+  *)
+    echo "Done. For mixed monitor setups, also install the plugin:"
+    echo "  omarchy plugin add https://github.com/johnsideserf/omarchy-ultrawide-background"
+    echo "  omarchy-ultrawide enable"
+    ;;
+esac

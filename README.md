@@ -17,27 +17,42 @@ The stock image on a 32:9 screen, then the same background from this pack:
 ## Install
 
 ```bash
-git clone https://github.com/johnsideserf/omarchy-ultrawide-background
-cd omarchy-ultrawide-background
-./install.sh                 # detects your monitor, fetches the right pack, adds menu rows
+omarchy plugin add https://github.com/johnsideserf/omarchy-ultrawide-background
+~/.config/omarchy/plugins/io.github.johnsideserf.ultrawide-background/install.sh
 ```
 
-That's it. `install.sh` picks the pack matching your display, installs the images,
-adds a **Style → Ultrawide backgrounds** section to the Omarchy menu, and links the
-`omarchy-ultrawide` command into `~/.local/bin`.
+The first line hands the repo to Omarchy, so `omarchy plugin update` keeps it
+current and `omarchy plugin remove` takes it away. The second installs the images:
+it detects your monitor, fetches the matching pack, adds a **Style → Ultrawide
+backgrounds** section to the Omarchy menu, and links `omarchy-ultrawide` into
+`~/.local/bin`.
 
-To also swap in the monitor-aware renderer (needed only for **mixed** monitor
-setups — see below):
+That is all most people need. The backgrounds are now in every theme's rotation —
+cycle them with `Super+Ctrl+Space` as usual.
+
+### Mixed monitors
+
+If your displays have *different* shapes (say a 32:9 next to a 16:9 laptop), also
+swap in the per-screen renderer:
 
 ```bash
-omarchy plugin add https://github.com/johnsideserf/omarchy-ultrawide-background
-omarchy-ultrawide enable      # enables this renderer, disables the stock one
+omarchy-ultrawide enable
 ```
 
-`omarchy-ultrawide enable` is the step that matters. `omarchy plugin add --enable`
-only enables this plugin, and Omarchy would then be running two background
-renderers; this plugin detects that and stands down, so the desktop keeps working
-but you get no per-monitor behaviour until you run the command above.
+Until you run that, the plugin deliberately does nothing: Omarchy's own background
+renderer is still active, and two renderers must not run at once. `enable` swaps
+them over; `omarchy-ultrawide disable` puts the stock one back.
+
+<details>
+<summary>Prefer not to install the plugin at all?</summary>
+
+The images work on their own — clone the repo and run the installer:
+
+```bash
+git clone https://github.com/johnsideserf/omarchy-ultrawide-background
+cd omarchy-ultrawide-background && ./install.sh
+```
+</details>
 
 ### Packs
 

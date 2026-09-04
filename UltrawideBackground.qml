@@ -23,16 +23,18 @@ Item {
   // Two background renderers must not run at once: both create a PanelWindow per
   // screen in the "omarchy-background" layer and both claim the "background" IPC
   // target, so the desktop ends up with stacked layers. If the stock renderer is
-  // still enabled we are the redundant one - stand down and render nothing until
-  // the user swaps deliberately with `omarchy-ultrawide enable`.
+  // still enabled we are the redundant one - stand down and render nothing. The
+  // manifest's omarchy.clonedFrom normally prevents this by having the registry
+  // swap the two, so reaching here means the registry has not applied it yet
+  // (typically a shell that has not re-read the manifest).
   readonly property bool stockRendererActive:
     pluginRegistry ? pluginRegistry.isEnabled("omarchy.background") : false
 
   onStockRendererActiveChanged: {
     if (stockRendererActive)
-      console.warn("ultrawide-background: omarchy.background is still enabled, "
-        + "so this renderer is standing down. Run `omarchy-ultrawide enable` to "
-        + "swap it in.")
+      console.warn("ultrawide-background: omarchy.background is still enabled, so "
+        + "this renderer is standing down. Run `omarchy restart shell` so the "
+        + "registry applies the clonedFrom swap, or `omarchy-ultrawide enable`.")
   }
 
   readonly property string home: Quickshell.env("HOME")

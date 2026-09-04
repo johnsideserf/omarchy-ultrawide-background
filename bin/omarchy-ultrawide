@@ -265,11 +265,23 @@ case "${1:-}" in
              echo "linked $n stock previews; switcher cache cleared";;
   resolve)   shift; cmd_resolve "${1:-}";;
   enable)    command -v omarchy >/dev/null 2>&1 || die "the 'omarchy' command is required"
-             omarchy plugin enable "$ID" >/dev/null && omarchy plugin disable omarchy.background >/dev/null
-             echo "ultrawide renderer enabled (stock omarchy.background disabled)";;
+             omarchy plugin enable "$ID" >/dev/null || die "could not enable $ID"
+             # The manifest declares omarchy.clonedFrom, so the plugin registry
+             # normally disables omarchy.background and remembers to restore it.
+             # Only step in if it did not (an older shell, or a registry that has
+             # not re-read the manifest yet).
+             if grep -q '"omarchy.background"' "$HOME/.config/omarchy/shell.json" 2>/dev/null; then
+               echo "ultrawide renderer enabled (registry swapped out omarchy.background)"
+             else
+               omarchy plugin disable omarchy.background >/dev/null 2>&1 || true
+               echo "ultrawide renderer enabled (disabled omarchy.background manually;"
+               echo "  run 'omarchy restart shell' so the registry picks up the manifest)"
+             fi;;
   disable)   command -v omarchy >/dev/null 2>&1 || die "the 'omarchy' command is required"
              omarchy plugin disable "$ID" >/dev/null 2>&1 || true
-             omarchy plugin enable omarchy.background >/dev/null
+             # the registry restores the source it disabled; make sure either way
+             grep -q '"omarchy.background"' "$HOME/.config/omarchy/shell.json" 2>/dev/null \
+               && omarchy plugin enable omarchy.background >/dev/null 2>&1 || true
              echo "stock omarchy.background restored";;
   -h|--help|"") usage;;
   *)         die "unknown command: $1";;

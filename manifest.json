@@ -12,5 +12,6 @@
     "service": "UltrawideBackground.qml"
   },
   "icon": "icon.png",
-  "license": "MIT"
+  "license": "MIT",
+  "preview": "preview.png"
 }

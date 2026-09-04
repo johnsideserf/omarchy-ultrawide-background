@@ -127,7 +127,9 @@ Images are installed to Omarchy's documented user paths:
 - default: `~/.config/omarchy/backgrounds/<theme>/` — they **join** the theme's
   background cycle alongside the stock ones
 - `--replace`: `~/.config/omarchy/themes/<theme>/backgrounds/` — they **replace**
-  the stock backgrounds when a theme is applied
+  the stock backgrounds when a theme is applied. In this mode the installer also
+  links each theme's stock `preview.png` into the overlay, so the theme switcher
+  keeps showing the original screenshot and does not list the theme twice
 
 Backgrounds stay tied to themes exactly as Omarchy intends: `Super+Ctrl+Space`
 cycles them, `omarchy theme set` applies them. Every installed file is recorded in

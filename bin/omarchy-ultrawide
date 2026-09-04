@@ -8,6 +8,7 @@
 #   packs                         list downloaded packs
 #   fetch [TAG]                   download packs from the GitHub release
 #   menu                          add rows to the Omarchy menu
+#   fix-previews                  restore stock theme screenshots in the switcher
 #   resolve [PATH]                JSON: pack variants of a background
 #   enable | disable              swap in the monitor-aware renderer / restore stock
 #
@@ -103,6 +104,18 @@ cmd_install() {
     if [ "$mode" = replace ]; then dest="$HOME/.config/omarchy/themes/$slug/backgrounds"
     else dest="$HOME/.config/omarchy/backgrounds/$slug"; fi
     mkdir -p "$dest"
+    # An overlay theme dir with no preview makes the theme switcher fall back to
+    # a background image AND still add the stock screenshot, so the theme shows
+    # up twice (its de-duplication compares name+extension). Link the stock
+    # preview in so the switcher keeps one entry, using the real screenshot.
+    if [ "$mode" = replace ]; then
+      stock_preview="/usr/share/omarchy/themes/$slug/preview.png"
+      overlay_dir="$HOME/.config/omarchy/themes/$slug"
+      if [ -f "$stock_preview" ] && ! ls "$overlay_dir"/preview.* >/dev/null 2>&1; then
+        ln -sf "$stock_preview" "$overlay_dir/preview.png"
+        echo "$overlay_dir/preview.png" >> "$MANIFEST"
+      fi
+    fi
     for f in "$d"*; do
       cp -f "$f" "$dest/$(basename "$f")"
       echo "$dest/$(basename "$f")" >> "$MANIFEST"; n=$((n+1))
@@ -201,6 +214,17 @@ case "${1:-}" in
   packs)     packs;;
   fetch)     shift; cmd_fetch "${1:-latest}";;
   menu)      cmd_menu;;
+  fix-previews)
+             n=0
+             for t in /usr/share/omarchy/themes/*/; do
+               slug=$(basename "$t"); o="$HOME/.config/omarchy/themes/$slug"
+               [ -d "$o" ] || continue
+               ls "$o"/preview.* >/dev/null 2>&1 && continue
+               [ -f "$t/preview.png" ] || continue
+               ln -sf "$t/preview.png" "$o/preview.png"; n=$((n+1))
+             done
+             rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/omarchy/theme-selector"
+             echo "linked $n stock previews; switcher cache cleared";;
   resolve)   shift; cmd_resolve "${1:-}";;
   enable)    omarchy plugin enable "$ID" >/dev/null && omarchy plugin disable omarchy.background >/dev/null
              echo "ultrawide renderer enabled (stock omarchy.background disabled)";;

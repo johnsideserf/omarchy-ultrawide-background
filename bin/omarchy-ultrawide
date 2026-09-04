@@ -28,7 +28,7 @@ MANIFEST="$STATE_DIR/manifest"
 META="$STATE_DIR/installed"
 OMASTATE="$HOME/.local/state/omarchy/current"
 MENU="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
-RATIOS="32x9 21x9 21x9-1080p"
+RATIOS="32x9 5k2k 21x9-1600 21x9 21x9-1080p"
 
 die() { echo "omarchy-ultrawide: $*" >&2; exit 1; }
 usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; }
@@ -49,7 +49,10 @@ except Exception:
   r=$(( W * 100 / H ))
   if   [ "$r" -ge 340 ]; then echo 32x9
   elif [ "$r" -ge 220 ] && [ "$r" -le 260 ]; then
-    [ "$H" -le 1080 ] && echo 21x9-1080p || echo 21x9
+    if   [ "$H" -ge 2000 ]; then echo 5k2k
+    elif [ "$H" -ge 1520 ]; then echo 21x9-1600
+    elif [ "$H" -gt 1080 ]; then echo 21x9
+    else echo 21x9-1080p; fi
   else echo ""; fi
 }
 
@@ -146,7 +149,10 @@ mons = json.load(open(sys.argv[2])) if os.path.getsize(sys.argv[2]) else []
 def cls(w, h):
     r = w * 100 // h
     if r >= 340: return "32x9"
-    if 220 <= r <= 260: return "21x9-1080p" if h <= 1080 else "21x9"
+    if 220 <= r <= 260:
+        if h >= 2000: return "5k2k"
+        if h >= 1520: return "21x9-1600"
+        return "21x9" if h > 1080 else "21x9-1080p"
     return ""
 if not mons:
     print("  (no monitors reported)"); raise SystemExit

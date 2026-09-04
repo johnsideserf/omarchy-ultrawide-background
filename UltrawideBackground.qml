@@ -42,7 +42,11 @@ Item {
     if (!w || !h) return ""
     var r = w * 100 / h
     if (r >= 340) return "32x9"
-    if (r >= 220 && r <= 260) return h <= 1080 ? "21x9-1080p" : "21x9"
+    if (r >= 220 && r <= 260) {
+      if (h >= 2000) return "5k2k"
+      if (h >= 1520) return "21x9-1600"
+      return h > 1080 ? "21x9" : "21x9-1080p"
+    }
     return ""
   }
 

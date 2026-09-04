@@ -39,8 +39,16 @@ omarchy-ultrawide enable      # enables this renderer, disables the stock one
 | Pack | Resolution | For |
 |---|---|---|
 | `32x9` | 5120×1440 | Samsung G9 and other 32:9 super-ultrawides |
-| `21x9` | 3440×1440 | The common 21:9 ultrawide |
+| `5k2k` | 5120×2160 | 5K2K ultrawides (LG 40WP95C and similar) |
+| `21x9-1600` | 3840×1600 | 38" 21:9 ultrawides |
+| `21x9` | 3440×1440 | The common 34" 21:9 ultrawide |
 | `21x9-1080p` | 2560×1080 | 21:9 at 1080p |
+
+Every pack contains all 92 stock Omarchy backgrounds. Where the source
+resolution allows, each pack is cut from the **original** artwork rather than
+rescaled from another pack, so nothing is upscaled unnecessarily — the taller
+formats (5K2K, 3840×1600) in particular go back to the source, which still has
+the vertical detail a 32:9 crop discards.
 
 The 21:9 packs are cropped from the 32:9 masters, so they are pixel-exact, never
 upscaled.

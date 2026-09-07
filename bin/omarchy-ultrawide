@@ -6,7 +6,7 @@
 #   uninstall                     remove every file this installed
 #   status                        per-monitor: what each screen shows
 #   packs                         list downloaded packs
-#   fetch [TAG]                   download packs from the GitHub release
+#   fetch [TAG]                   download packs (pinned, SHA-256 verified)
 #   menu                          add rows to the Omarchy menu
 #   menu-remove                   take those rows back out
 #   fix-previews                  restore stock theme screenshots in the switcher
@@ -31,6 +31,27 @@ META="$STATE_DIR/installed"
 OMASTATE="$HOME/.local/state/omarchy/current"
 MENU="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
 RATIOS="32x9 5k2k 21x9-1600 21x9 21x9-1080p"
+
+# Packs come from one reviewed, immutable release. `latest` is a moving target -
+# the bytes behind it can be replaced after a review - so it is never the
+# default, and every asset is checked against the SHA-256 recorded here before
+# it is unpacked. A tampered asset, or a $OMARCHY_ULTRAWIDE_REPO pointed
+# somewhere else, fails this check and is never extracted.
+PINNED_TAG=v0.1.0
+sha_for() {
+  case $1 in
+    32x9)       printf 390938dc136aea8278095a968da171345367e26b637b2687ccc785f48621348f;;
+    5k2k)       printf 1cd6307a7a462dbc9ffd3008287258870b4fb7a78ddb00702301b2cbc56e7ecd;;
+    21x9-1600)  printf 2bc3d406151782f1283ff6f70982603b210ffc02bb4b97ee3701507362bfecb4;;
+    21x9)       printf eb8dae3a3d2af9bf28a5b8438dc18a75c91cc56b8adbb10252e78f9dfba8879d;;
+    21x9-1080p) printf f43ee0299de979ab1df250f3967bdee9f0a3ba27a2a8b9c1e0190f35654a8eca;;
+  esac
+}
+# The largest pack is ~182 MB compressed and ~177 MB / 92 files expanded.
+MAX_DOWNLOAD_BYTES=$((320 * 1024 * 1024))
+MAX_DOWNLOAD_SECONDS=1800
+MAX_MEMBERS=512
+MAX_EXPANDED_BYTES=$((512 * 1024 * 1024))
 
 die() { echo "omarchy-ultrawide: $*" >&2; exit 1; }
 usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; }
@@ -64,14 +85,63 @@ reapply_theme() {
   [ -n "$cur" ] && omarchy theme set "$cur" >/dev/null 2>&1 && echo "re-applied theme: $cur" || true
 }
 
+# Refuse anything that is not an ordinary image file or a directory inside the
+# pack directory, and bound both the member count and the expanded size.
+# Links matter especially: cmd_install copies members with `cp -f`, which
+# follows symlinks, so a link member would otherwise pull an arbitrary file
+# (a key, a config) out of $HOME and into a theme background directory.
+# Sets ARCHIVE_FILES to the number of images accepted.
+ARCHIVE_FILES=0
+validate_archive() {
+  local archive=$1 pack=$2 type size name members=0 total=0
+  while IFS=$'\t' read -r type size name; do
+    [ -n "$name" ] || continue
+    case $type in
+      d|-) ;;
+      *) die "refusing $pack: member is not a regular file or directory: $name";;
+    esac
+    case $name in
+      /*|../*|*/../*|*/..) die "refusing $pack: unsafe member path: $name";;
+      "$pack"|"$pack"/*) ;;
+      *) die "refusing $pack: member outside '$pack/': $name";;
+    esac
+    [ "$type" = - ] || continue
+    case ${name,,} in
+      *.jpg|*.jpeg|*.png|*.webp) ;;
+      *) die "refusing $pack: member is not an image: $name";;
+    esac
+    case $size in
+      ''|*[!0-9]*) die "refusing $pack: unreadable member size for: $name";;
+    esac
+    members=$((members + 1)); total=$((total + size))
+    [ "$members" -le "$MAX_MEMBERS" ] \
+      || die "refusing $pack: archive holds more than $MAX_MEMBERS files"
+    [ "$total" -le "$MAX_EXPANDED_BYTES" ] \
+      || die "refusing $pack: archive expands beyond $MAX_EXPANDED_BYTES bytes"
+  done < <(tar --zstd -tvf "$archive" | awk '{
+      name = ""
+      for (i = 6; i <= NF; i++) name = name (i > 6 ? " " : "") $i
+      printf "%s\t%s\t%s\n", substr($1, 1, 1), $3, name
+    }')
+  [ "$members" -gt 0 ] || die "refusing $pack: archive contains no images"
+  ARCHIVE_FILES=$members
+}
+
 cmd_fetch() {
-  local tag=${1:-latest} url pack stage n
+  local tag=${1:-$PINNED_TAG} url pack stage want have size
   command -v tar >/dev/null 2>&1 || die "tar is required"
+  command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required"
   mkdir -p "$PACKS"; cd "$PACKS"
   # a hard kill skips the EXIT trap, so clear any debris from a previous run
   rm -rf "$PACKS"/.stage.* "$PACKS"/*.part 2>/dev/null || true
   for pack in $RATIOS; do
     [ -d "$pack" ] && { echo "have $pack"; continue; }
+    want=$(sha_for "$pack")
+    if [ "$tag" != "$PINNED_TAG" ] || [ -z "$want" ]; then
+      [ "${OMARCHY_ULTRAWIDE_ALLOW_UNVERIFIED:-0}" = 1 ] || die \
+        "no recorded SHA-256 for '$pack' at tag '$tag'. This build only fetches the reviewed release ($PINNED_TAG); re-run without a tag, or set OMARCHY_ULTRAWIDE_ALLOW_UNVERIFIED=1 to accept an unverified download."
+      want=""
+    fi
     if [ "$tag" = latest ]; then
       url="https://github.com/$REPO/releases/latest/download/$pack.tar.zst"
     else
@@ -81,21 +151,32 @@ cmd_fetch() {
     stage=$(mktemp -d "$PACKS/.stage.XXXXXX") || die "cannot create a staging dir"
     # shellcheck disable=SC2064
     trap "rm -rf '$stage' '$PACKS/$pack.part'" EXIT
-    curl -fsSL "$url" -o "$pack.part" || die "download failed: $url"
-    # refuse absolute or parent-relative members before unpacking anything
-    if tar --zstd -tf "$pack.part" | grep -qE '(^/|(^|/)\.\.(/|$))'; then
-      die "refusing to unpack $pack: archive contains unsafe paths"
+    curl --fail --silent --show-error --location \
+         --proto '=https' --tlsv1.2 --max-redirs 5 \
+         --connect-timeout 20 --max-time "$MAX_DOWNLOAD_SECONDS" \
+         --speed-limit 1024 --speed-time 60 \
+         --max-filesize "$MAX_DOWNLOAD_BYTES" \
+         -o "$pack.part" "$url" || die "download failed: $url"
+    # --max-filesize only fires when the server declares a length up front
+    size=$(stat -c %s "$pack.part")
+    [ "$size" -le "$MAX_DOWNLOAD_BYTES" ] \
+      || die "refusing $pack: download exceeded $MAX_DOWNLOAD_BYTES bytes"
+    if [ -n "$want" ]; then
+      have=$(sha256sum "$pack.part" | cut -d' ' -f1)
+      [ "$have" = "$want" ] \
+        || die "refusing $pack: SHA-256 mismatch (expected $want, got $have)"
+    else
+      echo "  WARNING: unverified download (OMARCHY_ULTRAWIDE_ALLOW_UNVERIFIED=1)" >&2
     fi
+    validate_archive "$pack.part" "$pack"
     tar --zstd -xf "$pack.part" -C "$stage" --no-same-owner --no-same-permissions \
       || die "could not unpack $pack"
     [ -d "$stage/$pack" ] || die "$pack archive did not contain a '$pack' directory"
-    n=$(find "$stage/$pack" -type f | wc -l)
-    [ "$n" -gt 0 ] || die "$pack archive was empty"
     # move into place only once it is known-good, so an interrupted run never
     # leaves a partial directory that the next run mistakes for a full pack
     mv "$stage/$pack" "$PACKS/$pack"
     rm -rf "$stage" "$pack.part"; trap - EXIT
-    echo "ok $pack ($n images)"
+    echo "ok $pack ($ARCHIVE_FILES images)"
   done
 }
 
@@ -174,9 +255,19 @@ cmd_status() {
   echo "packs downloaded:   $(packs | tr '\n' ' ')"
   [ -f "$META" ] && echo "installed:          $(tr '\n' ' ' < "$META")" || echo "installed:          (none)"
   echo
-  cmd_resolve "$bg" > "/tmp/.uw-res.$$" 2>/dev/null || echo '{}' > "/tmp/.uw-res.$$"
-  hyprctl monitors -j > "/tmp/.uw-mon.$$" 2>/dev/null || echo '[]' > "/tmp/.uw-mon.$$"
-  python3 - "/tmp/.uw-res.$$" "/tmp/.uw-mon.$$" <<'PY'
+  # Status data goes into a private mode-0700 directory, never a predictable
+  # name in the shared /tmp: `>` follows symlinks, so a pre-created
+  # /tmp/.uw-res.<pid> pointing at any user-writable file would be truncated.
+  local rt res mon
+  rt=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/omarchy-ultrawide.XXXXXX") \
+    || die "cannot create a runtime directory"
+  chmod 700 "$rt"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$rt'" EXIT INT TERM HUP
+  res="$rt/resolve.json"; mon="$rt/monitors.json"
+  cmd_resolve "$bg" > "$res" 2>/dev/null || echo '{}' > "$res"
+  hyprctl monitors -j > "$mon" 2>/dev/null || echo '[]' > "$mon"
+  python3 - "$res" "$mon" <<'PY'
 import json, os, sys
 res = json.load(open(sys.argv[1])) if os.path.getsize(sys.argv[1]) else {}
 mons = json.load(open(sys.argv[2])) if os.path.getsize(sys.argv[2]) else []
@@ -198,7 +289,7 @@ for m in mons:
     shows = f"{os.path.basename(v)}   [{c}]" if v else "stock image (no pack for this shape)"
     print(f"{mark}{m['name']:10} {m['width']}x{m['height']:<8} {c or '-':12} {shows}")
 PY
-  rm -f "/tmp/.uw-res.$$" "/tmp/.uw-mon.$$"
+  rm -rf "$rt"; trap - EXIT INT TERM HUP
 }
 
 cmd_menu() {
@@ -249,7 +340,7 @@ case "${1:-}" in
   uninstall) cmd_uninstall; reapply_theme;;
   status)    cmd_status;;
   packs)     packs;;
-  fetch)     shift; cmd_fetch "${1:-latest}";;
+  fetch)     shift; cmd_fetch "${1:-$PINNED_TAG}";;
   menu)      cmd_menu;;
   menu-remove) cmd_menu_remove;;
   fix-previews)

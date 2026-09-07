@@ -135,8 +135,13 @@ omarchy-ultrawide enable|disable    # swap the renderer in / restore the stock o
   packs yourself; not needed for a normal install
 - `hyprctl` — monitor detection. Without it the CLI defaults to the 32:9 pack
 - `zstd`/`tar` — unpacking the release archives (stock on Arch)
+- `sha256sum` (coreutils) — verifying each downloaded pack against the
+  digest pinned in the CLI
 
-No network access is used after the initial pack download. No daemon, no
+Packs are downloaded from one pinned, immutable release tag and each archive
+is checked against a SHA-256 digest recorded in the CLI before it is
+unpacked; archives containing anything but ordinary image files are
+refused. No network access is used after the initial pack download. No daemon, no
 telemetry, nothing runs in the background: the plugin is a QML service inside the
 existing shell process, and the CLI only runs when you invoke it.
 

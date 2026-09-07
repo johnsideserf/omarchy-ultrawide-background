@@ -62,6 +62,12 @@ Item {
   property int variantVersion: 0
   property string resolvingPath: ""
 
+  // Absolute path to the CLI, resolved once from a command line that contains
+  // no data of ours (see cliResolveProc). Everything after that is a fixed
+  // argv, so a background path can never be read as shell syntax.
+  property string cliPath: ""
+  property string queuedVariantPath: ""
+
   function ratioClass(w, h) {
     if (!w || !h) return ""
     var r = w * 100 / h
@@ -83,12 +89,46 @@ Item {
     return (v && v.length > 0) ? v : path
   }
 
+  // Background paths arrive over IPC (any local process can call the handlers
+  // below) and from theme directories, so they are untrusted. Only an ordinary
+  // absolute image path is ever handed to a subprocess; anything else keeps the
+  // stock image rather than being resolved.
+  function isResolvablePath(path) {
+    if (!path || path.charAt(0) !== "/") return false
+    if (/[\x00-\x1f]/.test(path)) return false
+    if (path.indexOf("/../") >= 0 || /\/\.\.$/.test(path)) return false
+    return /\.(jpe?g|png|webp)$/i.test(path)
+  }
+
   function requestVariants(path) {
     if (!path || resolvingPath === path || variantCache[path] !== undefined) return
+    if (!isResolvablePath(path)) return
+    if (!cliPath) { queuedVariantPath = path; return }
     resolvingPath = path
-    resolveProc.command = ["bash", "-lc",
-      "omarchy-ultrawide resolve " + JSON.stringify(path) + " 2>/dev/null || echo '{}'"]
+    // Fixed argv, no shell: nothing in `path` is parsed as syntax. Building a
+    // `bash -lc` string here was command injection - JSON quoting is not shell
+    // quoting, so $(...) and backticks inside the path stayed executable.
+    resolveProc.command = [cliPath, "resolve", path]
     resolveProc.running = true
+  }
+
+  // omarchy-ultrawide installs into ~/.local/bin, which is not guaranteed to be
+  // on the PATH the shell inherits, so a login shell does the lookup once. This
+  // command line is a constant - it never interpolates a path or any other
+  // input - and its result is only ever used as argv[0].
+  Process {
+    id: cliResolveProc
+    running: true
+    command: ["bash", "-lc",
+      "command -v omarchy-ultrawide || printf '%s\\n' \"$HOME/.local/bin/omarchy-ultrawide\""]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        root.cliPath = String(text || "").trim().split("\n")[0]
+        var queued = root.queuedVariantPath
+        root.queuedVariantPath = ""
+        if (queued && root.cliPath) root.requestVariants(queued)
+      }
+    }
   }
 
   Process {
@@ -222,18 +262,23 @@ Item {
     }
 
     function set(path: string): void {
+      if (!root.isResolvablePath(String(path || "").trim())) return
       root.setBackground(path, false)
     }
 
     function setInstant(path: string): void {
+      if (!root.isResolvablePath(String(path || "").trim())) return
       root.setBackground(path, true)
     }
 
     function transition(fromPath: string, path: string): void {
+      if (!root.isResolvablePath(String(path || "").trim())) return
       root.transitionBackground(fromPath, path, path, false, false)
     }
 
     function themeTransition(fromPath: string, path: string, finalPath: string, colorsB64: string, shellB64: string): void {
+      if (!root.isResolvablePath(String(path || "").trim())) return
+      if (!root.isResolvablePath(String(finalPath || "").trim())) return
       root.transitionBackgroundWithTheme(fromPath, path, finalPath, colorsB64, shellB64)
     }
   }
